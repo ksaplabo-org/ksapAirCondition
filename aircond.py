@@ -62,7 +62,7 @@ def mqtt_publish(arg1 ,arg2):
     tmstr = "{0:%Y-%m-%d %H:%M:%S}".format(tm)
 
     isSend=False
-    if timer_cnt==60:
+    if timer_cnt==600:
         isSend=True
         json_msg = json.dumps({"GetDateTime": tmstr, "Temperature": temp_val,"Humidity":humi_val,"CO2":eco2_val,"TVOC":tvoc_val})
         client.publish(MQTT_TOPIC_PUB ,json_msg ,qos=1)
