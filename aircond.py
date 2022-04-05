@@ -1,5 +1,5 @@
 import RPi.GPIO as GPIO
-import dht11 
+import dht11
 import time
 import datetime
 import paho.mqtt.client
@@ -8,6 +8,7 @@ import asyncio
 import ssl
 import board
 import adafruit_ccs811
+import signal
 from adafruit_ssd1306 import SSD1306_I2C
 from PIL import Image, ImageDraw, ImageFont
 
@@ -24,6 +25,7 @@ while not ccs811.data_ready:
 # initialize GPIO
 GPIO.setwarnings(True)
 GPIO.setmode(GPIO.BCM)
+temp_sensor = dht11.DHT11(pin=14)
 
 # Mqtt Define      # add
 AWSIoT_ENDPOINT = "alij9rhkrwgll-ats.iot.ap-northeast-1.amazonaws.com"
@@ -34,14 +36,17 @@ MQTT_ROOTCA = "/home/pi/Downloads/AmazonRootCA1.pem"
 MQTT_CERT = "/home/pi/Downloads/d809f41470b4a2d96ef70d807bbaabae3a27b7df436c049c34366bb90985d4fe-certificate.pem.crt"
 MQTT_PRIKEY = "/home/pi/Downloads/d809f41470b4a2d96ef70d807bbaabae3a27b7df436c049c34366bb90985d4fe-private.pem.key"
 
-# read data using pin 14
-instance = dht11.DHT11(pin=14)
+temp_val=0
+humi_val=0
+eco2_val=0
+tvoc_val=0
+timer_cnt=0
 
 def mqtt_connect(client, userdata, flags, respons_code):
-    print('mqtt connected.') 
+    print('mqtt connected.')
     # Entry Mqtt Subscribe.
     client.subscribe(MQTT_TOPIC_SUB)
-    print('subscribe topic : ' + MQTT_TOPIC_SUB) 
+    print('subscribe topic : ' + MQTT_TOPIC_SUB)
 
 def mqtt_message(client, userdata, msg):
     # Get Received Json Data 
@@ -49,49 +54,55 @@ def mqtt_message(client, userdata, msg):
     # if use ... json_dict['xxx']
 
 # Publish Loop
-async def pub_loop():
-    temp_val=0
-    humi_val=0
-    eco2_val=0
-    tvoc_val=0
-    count=0
+def mqtt_publish(arg1 ,arg2):
+
+    global timer_cnt
+
+    tm = datetime.datetime.now()
+    tmstr = "{0:%Y-%m-%d %H:%M:%S}".format(tm)
+
+    isSend=False
+    if timer_cnt==60:
+        isSend=True
+        json_msg = json.dumps({"GetDateTime": tmstr, "Temperature": temp_val,"Humidity":humi_val,"CO2":eco2_val,"TVOC":tvoc_val})
+        client.publish(MQTT_TOPIC_PUB ,json_msg)
+        timer_cnt=0;
+
+    # monitor show
+    img = Image.new("1",(display.width, display.height))
+    draw = ImageDraw.Draw(img)
+    draw.text((0,0),'時刻 ' + tm.strftime('%H:%M:%S'),font=FONT_SANS_12,fill=1)
+    draw.text((0,16),'温度 {0:.1f}℃ 湿度 {1:.1f}%'.format(float(temp_val) ,float(humi_val)) ,font=FONT_SANS_12,fill=1)
+    draw.text((0,32),'CO2 '+'{:4}'.format(eco2_val)+ ' PPM',font=FONT_SANS_12,fill=1)
+    draw.text((0,48),'TVOC '+'{:4}'.format(tvoc_val)+ ' PPB',font=FONT_SANS_12,fill=1)
+    display.image(img)
+    display.show()
+
+    # print console
+    print("[" + ("MQTT送信" if isSend else "        ") + "]datetime:" + tmstr + " Temperature: %-3.1f C" % temp_val + " Humidity: %-3.1f %%" % humi_val + " CO2: %d PPM" % eco2_val + " TVOC: %d PPB" % tvoc_val)
+
+    # counter increment
+    timer_cnt = timer_cnt + 1
+
+# Get AirCondition
+async def collection_loop():
+
+    global temp_val
+    global humi_val
+    global eco2_val
+    global tvoc_val
 
     while True:
-        tm = datetime.datetime.now()
-        tmstr = "{0:%Y-%m-%d %H:%M:%S}".format(tm)
-        result = instance.read()
+        # Get Temperature / Humidity
+        result = temp_sensor.read()
         if result.is_valid():
             temp_val = result.temperature
             humi_val = result.humidity
+        # Get CO2/TVOC
         if ccs811.data_ready:
             eco2_val=ccs811.eco2
             tvoc_val=ccs811.tvoc
-
-
-        print("datetime:" + tmstr + " Temperature: %-3.1f C" % temp_val + " Humidity: %-3.1f %%" % humi_val + " CO2: %d PPM" % eco2_val + " TVOC: %d PPB" % tvoc_val)
-
-		# create message
-        json_msg = json.dumps({"GetDateTime": tmstr, "Temperature": temp_val,"Humidity":humi_val,"CO2":eco2_val,"TVOC":tvoc_val})
-
-        # draw image
-        img = Image.new("1",(display.width, display.height))
-        draw = ImageDraw.Draw(img)
-        draw.text((0,0),'時刻 ' + tm.strftime('%H:%M:%S'),font=FONT_SANS_12,fill=1)
-        draw.text((0,16),'温度 {0:.1f}℃ 湿度 {1:.1f}%'.format(float(temp_val) ,float(humi_val)) ,font=FONT_SANS_12,fill=1)
-        draw.text((0,32),'CO2 '+'{:4}'.format(eco2_val)+ ' PPM',font=FONT_SANS_12,fill=1)
-        draw.text((0,48),'TVOC '+'{:4}'.format(tvoc_val)+ ' PPB',font=FONT_SANS_12,fill=1)
-
-        display.image(img)
-        display.show()
-
-		# mqtt Publish
-        if count==600:
-            client.publish(MQTT_TOPIC_PUB ,json_msg)
-            print('MQTT送信')
-            count=0
-        
         time.sleep(1)
-        count=count+1
 
 # Main Procedure
 if __name__ == '__main__':
@@ -104,9 +115,14 @@ if __name__ == '__main__':
     # Connect To Mqtt Broker(aws)
     client.connect(AWSIoT_ENDPOINT, port=MQTT_PORT, keepalive=60)
 
-    # Start Mqtt Subscribe 
+    # Start Mqtt Subscribe
     client.loop_start()
 
-    # Start Publish Loop 
+    # Start Mqtt_Publish
+    signal.signal(signal.SIGALRM ,mqtt_publish)
+    signal.setitimer(signal.ITIMER_REAL ,1 ,1)
+
+    # Start Collection Loop
     loop = asyncio.get_event_loop()
-    loop.run_until_complete(pub_loop())
+    loop.run_until_complete(collection_loop())
+
