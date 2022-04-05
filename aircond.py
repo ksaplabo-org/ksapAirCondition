@@ -65,7 +65,7 @@ def mqtt_publish(arg1 ,arg2):
     if timer_cnt==60:
         isSend=True
         json_msg = json.dumps({"GetDateTime": tmstr, "Temperature": temp_val,"Humidity":humi_val,"CO2":eco2_val,"TVOC":tvoc_val})
-        client.publish(MQTT_TOPIC_PUB ,json_msg)
+        client.publish(MQTT_TOPIC_PUB ,json_msg ,qos=1)
         timer_cnt=0;
 
     # monitor show
