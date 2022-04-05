@@ -93,15 +93,19 @@ async def collection_loop():
     global tvoc_val
 
     while True:
-        # Get Temperature / Humidity
-        result = temp_sensor.read()
-        if result.is_valid():
-            temp_val = result.temperature
-            humi_val = result.humidity
-        # Get CO2/TVOC
-        if ccs811.data_ready:
-            eco2_val=ccs811.eco2
-            tvoc_val=ccs811.tvoc
+        try:
+            # Get Temperature / Humidity
+            result = temp_sensor.read()
+            if result.is_valid():
+                temp_val = result.temperature
+                humi_val = result.humidity
+            # Get CO2/TVOC
+            if ccs811.data_ready:
+                eco2_val=ccs811.eco2
+                tvoc_val=ccs811.tvoc
+        except Exception as e:
+            print("Err!")
+
         time.sleep(1)
 
 # Main Procedure
@@ -125,4 +129,5 @@ if __name__ == '__main__':
     # Start Collection Loop
     loop = asyncio.get_event_loop()
     loop.run_until_complete(collection_loop())
+
 
